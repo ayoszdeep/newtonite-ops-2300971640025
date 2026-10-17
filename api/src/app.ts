@@ -42,7 +42,7 @@ app.use(
   "/api/auth/login",
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 20,
+    limit: process.env.NODE_ENV === "production" ? 20 : 1000,
     standardHeaders: "draft-8",
     legacyHeaders: false,
   })

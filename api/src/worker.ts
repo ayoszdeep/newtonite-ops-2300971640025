@@ -137,8 +137,7 @@ async function processEvent(event: any): Promise<void> {
       break;
 
     default:
-      console.log(`Unknown event type: ${eventType}`);
-      return;
+      throw new Error(`Unsupported outbox event type: ${eventType}`);
   }
 
   // Remove the actor from recipients

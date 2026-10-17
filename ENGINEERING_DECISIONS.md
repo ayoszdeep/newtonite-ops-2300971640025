@@ -144,3 +144,23 @@ We implemented **Cryptographic Content Hashing**:
 - When a retry occurs with identical key and identical payload, the cached response is served without re-executing logic.
 - If a client alters the payload but reuses the same key, the backend returns HTTP `422 Unprocessable Entity` (`IDEMPOTENCY_KEY_REUSED`), preventing accidental corruption.
 - In the frontend, form edits automatically reset the idempotency key reference (`useEffect(() => { keyRef.current = undefined }, [JSON.stringify(values)])`), ensuring legitimate edits are never blocked while identical network retries succeed seamlessly.
+
+---
+
+## 7. Assumptions Documented
+
+1. **Single-Team Ownership:** Each work item belongs strictly to one team (`team_id`). An item cannot belong simultaneously to multiple teams. If an item needs to transfer across teams, an audit event records it or a corresponding item is spawned.
+2. **Team Roles vs. Global Roles:** User permissions are evaluated strictly per team. A user might be a `lead` in Payments with approval authority, but only a `viewer` in Engineering.
+3. **Approval Triggers:** Approvals are required only for items with `requires_approval = true`. When an operator moves an item from `IN_PROGRESS` to `PENDING_APPROVAL`, it enters the approvals queue. Team leads can approve or reject (with mandatory justification).
+4. **Self-Approval Barrier:** An operator cannot approve their own requested approval, preventing rogue resolution of self-created high-risk items.
+5. **No External Dependencies (In-App Only):** To guarantee offline development and reproducible deployment, third-party email providers, SMS gateways, and cloud object stores were replaced with PostgreSQL-native durable queues and audit tables.
+
+---
+
+## 8. What Was Intentionally NOT Built (Trade-offs & Scope Boundaries)
+
+1. **Email / SMS Delivery:** Skipped in favor of an in-app transactional notification feed (`notifications` table) with deduplication guarantees. External email networks introduce delivery unreliability that distracts from the core consistency model.
+2. **Complex File Attachments:** Direct multipart file upload to Node.js memory was avoided to prevent memory exhaustion under pressure. In a production cluster, direct S3 pre-signed upload URLs would be integrated.
+3. **SSO / OAuth2 / SAML:** Replaced by high-security JWTs (`HS256`, 1h expiry) and bcrypt password hashing (cost 10) with anti-timing enumeration protection.
+4. **Real-time WebSockets:** Replaced by background client polling (8s for notifications, 10s for detail updates, 15s for dashboard) to ensure simple, bulletproof reconnection behavior and horizontal API statelessness.
+5. **Arbitrary Page Number Jumping:** Offloaded in favor of keyset cursor pagination to guarantee constant-time index seeks over 20,000+ records.
