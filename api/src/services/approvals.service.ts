@@ -31,9 +31,8 @@ export async function getPendingApprovals(userId: string) {
      JOIN teams t ON t.id = wi.team_id
      WHERE a.decision = 'PENDING'
        AND wi.team_id = ANY($1)
-       AND a.requested_by != $2
      ORDER BY a.requested_at DESC`,
-    [teamIds, userId]
+    [teamIds]
   );
 
   return result.rows;

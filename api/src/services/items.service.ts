@@ -41,7 +41,7 @@ export const transitionSchema = z.object({
 });
 
 export const commentSchema = z.object({
-  body: z.string().min(1).max(10000),
+  body: z.string().trim().min(1).max(10000),
 });
 
 export const assignSchema = z.object({
@@ -254,7 +254,7 @@ export async function listItems(
   }
 
   if (filters.search) {
-    conditions.push(`wi.search_vector @@ plainto_tsquery('english', $${paramIndex})`);
+    conditions.push(`(wi.search_vector @@ plainto_tsquery('english', $${paramIndex}) OR wi.title ILIKE '%' || $${paramIndex} || '%')`);
     params.push(filters.search);
     paramIndex++;
   }

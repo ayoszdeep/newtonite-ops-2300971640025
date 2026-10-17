@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../middleware/authenticate";
 import * as approvalsService from "../services/approvals.service";
+import { HttpError } from "../utils/HttpError";
 
 const router = Router();
 
@@ -24,6 +25,10 @@ const approveSchema = z.object({
 // Approve an item
 router.post("/:id/approve", async (req, res, next) => {
   try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    if (!idResult.success) {
+      throw new HttpError(404, "Approval not found");
+    }
     const { expectedVersion } = approveSchema.parse(req.body);
     const item = await approvalsService.approveItem(
       req.params.id,
@@ -44,6 +49,10 @@ const rejectSchema = z.object({
 // Reject an item
 router.post("/:id/reject", async (req, res, next) => {
   try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    if (!idResult.success) {
+      throw new HttpError(404, "Approval not found");
+    }
     const { expectedVersion, reason } = rejectSchema.parse(req.body);
     const item = await approvalsService.rejectItem(
       req.params.id,

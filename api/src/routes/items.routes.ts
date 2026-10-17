@@ -10,18 +10,35 @@ const router = Router();
 
 router.use(authenticate);
 
+import { z } from "zod";
+
+const querySchema = z.object({
+  teamId: z.string().uuid().optional(),
+  status: z.enum([
+    "OPEN", "IN_PROGRESS", "PENDING_APPROVAL",
+    "APPROVED", "REJECTED", "RESOLVED", "CLOSED",
+  ]).optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+  assigneeId: z.string().uuid().optional(),
+  type: z.enum(["incident", "payment", "compliance", "task"]).optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+  cursor: z.string().optional(),
+});
+
 // List items
 router.get("/", async (req, res, next) => {
   try {
+    const query = querySchema.parse(req.query);
     const result = await itemsService.listItems(req.user!.id, {
-      teamId: req.query.teamId as string | undefined,
-      status: req.query.status as string | undefined,
-      priority: req.query.priority as string | undefined,
-      assigneeId: req.query.assigneeId as string | undefined,
-      type: req.query.type as string | undefined,
-      search: req.query.search as string | undefined,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      cursor: req.query.cursor as string | undefined,
+      teamId: query.teamId,
+      status: query.status,
+      priority: query.priority,
+      assigneeId: query.assigneeId,
+      type: query.type,
+      search: query.search,
+      limit: query.limit,
+      cursor: query.cursor,
     });
 
     res.json(result);

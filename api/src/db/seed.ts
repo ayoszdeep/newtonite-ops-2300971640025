@@ -49,6 +49,12 @@ async function seed() {
       { name: "Henry Davis", email: "henry@opsdesk.dev", password: "password123" },
       { name: "Ivy Chen", email: "ivy@opsdesk.dev", password: "password123" },
       { name: "Jack Taylor", email: "jack@opsdesk.dev", password: "password123" },
+      // Smoke test users
+      { name: "Team Lead", email: "lead@opsdesk.dev", password: "password123" },
+      { name: "Team Member", email: "member@opsdesk.dev", password: "password123" },
+      { name: "Team Member 2", email: "member2@opsdesk.dev", password: "password123" },
+      { name: "Team Viewer", email: "viewer@opsdesk.dev", password: "password123" },
+      { name: "Outsider User", email: "outsider@opsdesk.dev", password: "password123" },
     ];
 
     const userIds: string[] = [];
@@ -103,6 +109,12 @@ async function seed() {
       { userId: userIds[8], teamId: teamIds[2], role: "member" },  // Ivy - member
       { userId: userIds[9], teamId: teamIds[2], role: "member" },  // Jack - member
       { userId: userIds[0], teamId: teamIds[2], role: "member" },  // Alice - member (cross-team)
+      // Smoke test users
+      { userId: userIds[10], teamId: teamIds[0], role: "lead" },   // lead@opsdesk.dev -> Payments (lead)
+      { userId: userIds[11], teamId: teamIds[0], role: "member" }, // member@opsdesk.dev -> Payments (member)
+      { userId: userIds[12], teamId: teamIds[0], role: "member" }, // member2@opsdesk.dev -> Payments (member)
+      { userId: userIds[13], teamId: teamIds[0], role: "viewer" }, // viewer@opsdesk.dev -> Payments (viewer)
+      { userId: userIds[14], teamId: teamIds[1], role: "member" }, // outsider@opsdesk.dev -> Engineering (member)
     ];
 
     for (const m of memberships) {
