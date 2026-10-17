@@ -32,7 +32,7 @@ app.get("/api/health", async (_req, res) => {
   try {
     const { pool } = await import("./db/pool");
     await pool.query("SELECT 1");
-    res.json({ status: "ok" });
+    res.json({ status: "ok", database: "connected" });
   } catch {
     res.status(503).json({ status: "error", message: "Database unavailable" });
   }

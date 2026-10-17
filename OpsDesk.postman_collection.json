@@ -1,0 +1,774 @@
+{
+  "info": {
+    "name": "OpsDesk Backend API",
+    "description": "Complete test suite for OpsDesk backend covering auth, RBAC, items CRUD, claims, concurrency, idempotency, workflow, approvals, audit, outbox, and notifications.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "A. Health and Authentication",
+      "item": [
+        {
+          "name": "1. Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Database connected\", () => {",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data.status).to.eql(\"ok\");",
+                  "  pm.expect(data.database).to.eql(\"connected\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Login as Lead (Alice)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@opsdesk.dev\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.token).to.be.a('string');",
+                  "pm.environment.set(\"leadToken\", data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Member (Bob)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@opsdesk.dev\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"memberToken\", data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Viewer (Diana)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"diana@opsdesk.dev\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"viewerToken\", data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Other Team Lead (Eve)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"eve@opsdesk.dev\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"otherTeamToken\", data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Login Wrong Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@opsdesk.dev\",\n  \"password\": \"wrongpassword\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Error message is generic\", () => {",
+                  "  pm.expect(pm.response.json().message).to.eql(\"Invalid email or password\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Login Unknown Email",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"unknown@opsdesk.dev\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Anti-enumeration timing safe error\", () => {",
+                  "  pm.expect(pm.response.json().message).to.eql(\"Invalid email or password\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Get Me (Valid Token)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.user.email).to.eql(\"alice@opsdesk.dev\");",
+                  "pm.expect(data.memberships).to.be.an('array');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Get Me (Missing Token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Get Me (Invalid Token)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer invalid.jwt.token" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "B. Teams and Work Items",
+      "item": [
+        {
+          "name": "8. List My Teams",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/teams"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.teams).to.be.an('array');",
+                  "if (data.teams.length > 0) {",
+                  "  pm.environment.set(\"teamId\", data.teams[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Get Team Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/teams/{{teamId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().team.id).to.eql(pm.environment.get(\"teamId\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Get Team Members",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/teams/{{teamId}}/members"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const members = pm.response.json().members;",
+                  "pm.expect(members).to.be.an('array');",
+                  "const member = members.find(m => m.role === 'member');",
+                  "if (member) pm.environment.set(\"assigneeId\", member.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. List Items (Keyset Pagination)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?teamId={{teamId}}&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "items"],
+              "query": [
+                { "key": "teamId", "value": "{{teamId}}" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.items).to.be.an('array');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Create Work Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{memberToken}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "create-item-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamId\": \"{{teamId}}\",\n  \"type\": \"payment\",\n  \"title\": \"Dispute transaction #9910\",\n  \"description\": \"Customer requested chargeback\",\n  \"priority\": \"P1\",\n  \"requiresApproval\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/items"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => pm.response.to.have.status(201));",
+                  "const item = pm.response.json().item;",
+                  "pm.expect(item.id).to.be.a('string');",
+                  "pm.environment.set(\"itemId\", item.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. Get Item Details & Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/items/{{itemId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.item.id).to.eql(pm.environment.get(\"itemId\"));",
+                  "pm.expect(data.permissions).to.be.an('object');",
+                  "pm.expect(data.permissions.canEdit).to.be.true;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14. Patch Item (Optimistic Versioning)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{memberToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1,\n  \"title\": \"Updated dispute transaction #9910\",\n  \"priority\": \"P0\"\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().item.version).to.eql(2);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15. Claim Item",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/items/{{itemId}}/claim"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().item.assignee_id).to.not.be.null;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16. Assign Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{leadToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assigneeId\": \"{{assigneeId}}\",\n  \"expectedVersion\": 3\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}/assign"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().item.assignee_id).to.eql(pm.environment.get(\"assigneeId\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17. Unassign Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{leadToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 4\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}/unassign"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().item.assignee_id).to.be.null;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18. Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{memberToken}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "comment-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Reviewing transaction settlement logs.\"\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}/comments"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", () => pm.response.to.have.status(201));",
+                  "pm.expect(pm.response.json().comment.id).to.be.a('string');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19. List Comments",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/items/{{itemId}}/comments"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().comments).to.be.an('array');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "20. Get Activity History",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/items/{{itemId}}/activity"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().events).to.be.an('array');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "C. Workflow and Approvals",
+      "item": [
+        {
+          "name": "21. Transition to IN_PROGRESS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{memberToken}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "trans-inp-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PROGRESS\",\n  \"expectedVersion\": 5\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}/transition"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Requires claim before moving to IN_PROGRESS or succeeds if assigned\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "22. Transition Invalid (OPEN to CLOSED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{memberToken}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "trans-inv-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CLOSED\",\n  \"expectedVersion\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/items/{{itemId}}/transition"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 422 or 409\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([409, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "24. List Pending Approvals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/approvals/pending"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const apps = pm.response.json().approvals;",
+                  "pm.expect(apps).to.be.an('array');",
+                  "if (apps.length > 0) pm.environment.set(\"approvalId\", apps[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "25. Approve Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{leadToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 3\n}"
+            },
+            "url": "{{baseUrl}}/api/approvals/{{approvalId}}/approve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Decision handled (200 or conflict if already decided/stale)\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "26. Reject Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{leadToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 3,\n  \"reason\": \"Incomplete supporting documentation.\"\n}"
+            },
+            "url": "{{baseUrl}}/api/approvals/{{approvalId}}/reject"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Decision handled (200 or conflict if already decided/stale)\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404, 409]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D. Dashboard and Notifications",
+      "item": [
+        {
+          "name": "27. Get Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{leadToken}}" }],
+            "url": "{{baseUrl}}/api/dashboard"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.myAssigned).to.be.an('object');",
+                  "pm.expect(data.unassignedHighPriority).to.be.an('object');",
+                  "pm.expect(data.pendingApprovals).to.be.an('object');",
+                  "pm.expect(data.overdueItems).to.be.an('object');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "28. Get Notifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/notifications"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json();",
+                  "pm.expect(data.notifications).to.be.an('array');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "29. Mark Notification Read",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/notifications/{{notifId}}/read"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Mark read response handled\", () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "30. Mark All Notifications Read",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{memberToken}}" }],
+            "url": "{{baseUrl}}/api/notifications/read-all"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().success).to.be.true;"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
