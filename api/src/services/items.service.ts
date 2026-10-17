@@ -166,6 +166,21 @@ export async function getItem(userId: string, itemId: string) {
     throw new HttpError(404, "Work item not found");
   }
 
+  // Compute allowed transitions for this item
+  const APPROVAL_TARGETS = new Set(["APPROVED", "REJECTED"]);
+  const TRANSITIONS_MAP: Record<string, string[]> = {
+    OPEN: ["IN_PROGRESS"],
+    IN_PROGRESS: item.requires_approval ? ["PENDING_APPROVAL"] : ["PENDING_APPROVAL", "RESOLVED"],
+    PENDING_APPROVAL: [], // Only decided via /approvals
+    APPROVED: ["RESOLVED"],
+    REJECTED: ["IN_PROGRESS"],
+    RESOLVED: ["CLOSED"],
+    CLOSED: [],
+  };
+  const allowedTransitions = (TRANSITIONS_MAP[item.status] ?? []).filter(
+    (t) => !APPROVAL_TARGETS.has(t)
+  );
+
   // Compute permissions (design #14)
   const permissions = {
     canEdit: access.role === "member" || access.role === "lead",
@@ -173,6 +188,7 @@ export async function getItem(userId: string, itemId: string) {
       !item.assignee_id &&
       !['RESOLVED', 'CLOSED'].includes(item.status),
     canTransition: access.role === "member" || access.role === "lead",
+    allowedTransitions,
     canApprove: access.role === "lead" && item.status === "PENDING_APPROVAL",
     canComment: access.role === "member" || access.role === "lead",
     canAssign: access.role === "member" || access.role === "lead",

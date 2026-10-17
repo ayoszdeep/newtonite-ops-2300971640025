@@ -1,177 +1,195 @@
-# OpsDesk — Enterprise Operational Desk Backend
+# newtonite-ops-2300971640025
 
-OpsDesk is an enterprise operations backend written in Node.js, Express 5, TypeScript, and PostgreSQL (`pg`). It provides authentication, role-based team permissions, concurrent-update protection, approval workflows, append-only audit histories, and a transactional outbox background worker with in-app notifications.
+# OpsDesk — Enterprise Operational Desk & Workflow System
 
----
-
-## Features
-
-- **Authentication & RBAC:** JWT authentication (`HS256`), bcrypt password hashing (cost 10), timing-attack resistance on login, user deactivation checks on every request, and team-scoped roles (`viewer`, `member`, `lead`).
-- **Concurrent-Update Protection:** Optimistic concurrency control via `version` column, row-locking transactions (`SELECT ... FOR UPDATE`), and atomic conditional `UPDATE` statements for racing claims.
-- **Workflow State Machine:** Strict transitions (`OPEN → IN_PROGRESS → PENDING_APPROVAL → APPROVED/REJECTED → RESOLVED → CLOSED`), approval enforcement for flagged items, and self-approval prevention.
-- **Transactional Outbox Worker:** Decoupled background notification system using PostgreSQL `FOR UPDATE SKIP LOCKED`, lease recovery for crashed workers, exponential backoff retries, dead-letter handling, and database-enforced notification deduplication (`UNIQUE(event_id, user_id)`).
-- **Idempotency Keys:** Request deduplication for creations, comments, and state transitions using `Idempotency-Key` headers with SHA-256 canonical payload hashing.
-- **Search & Keyset Pagination:** PostgreSQL full-text search (`TSVECTOR` + GIN indexing) combined with constant-time keyset cursor pagination (`updated_at DESC, id DESC`).
-- **Dashboard Aggregations:** Database-level queries for assigned items, unassigned high-priority tasks (P0/P1), pending approvals, and overdue work items.
+OpsDesk is an internal web application designed to create, assign, track, and resolve high-stakes operational work items across teams under pressure. It provides concurrency-safe state transitions, team-scoped role-based authorization, optimistic UI updates with conflict resolution, append-only audit histories, and a resilient transactional outbox worker for background notifications.
 
 ---
 
-## Project Structure
+## Architecture Diagram
 
-```
-OpsDesk/
-├── docker-compose.yml           # PostgreSQL, API, and Worker containers
-├── DECISIONS.md                 # 5 Key architectural decisions
-├── README.md                    # Project documentation
-└── api/
-    ├── Dockerfile               # Production multi-stage Docker build
-    ├── package.json             # Scripts & dependencies
-    ├── tsconfig.json            # TypeScript configuration
-    ├── .env                     # Local environment variables
-    ├── .env.example             # Environment template
-    └── src/
-        ├── app.ts               # Express configuration & middleware
-        ├── index.ts             # API entrypoint
-        ├── worker.ts            # Outbox background worker
-        ├── config/
-        │   └── env.ts           # Zod-validated environment config
-        ├── db/
-        │   ├── pool.ts          # pg Connection pool
-        │   ├── transaction.ts   # Reusable withTransaction helper
-        │   ├── migrate.ts       # Migration runner
-        │   ├── seed.ts          # Demo data & 20k bulk items generator
-        │   └── migrations/
-        │       └── 001_init.sql # Database schema & indexes
-        ├── middleware/
-        │   ├── authenticate.ts  # JWT verification & active user check
-        │   ├── authorizeTeam.ts # Team role-based access control
-        │   └── errorHandler.ts  # Centralized error handler with error codes
-        ├── routes/
-        │   ├── auth.routes.ts   # /api/auth (login, me)
-        │   ├── teams.routes.ts  # /api/teams (list, details, members)
-        │   ├── items.routes.ts  # /api/items (CRUD, claim, assign, transition, comments)
-        │   ├── approvals.routes.ts # /api/approvals (pending, approve, reject)
-        │   ├── dashboard.routes.ts # /api/dashboard (counts and summaries)
-        │   └── notifications.routes.ts # /api/notifications (list, mark read)
-        ├── services/
-        │   ├── auth.service.ts
-        │   ├── items.service.ts
-        │   ├── workflow.service.ts
-        │   ├── approvals.service.ts
-        │   ├── audit.service.ts
-        │   ├── idempotency.service.ts
-        │   ├── outbox.service.ts
-        │   └── notifications.service.ts
-        ├── types/
-        │   └── express.d.ts     # Express Request type extensions
-        └── utils/
-            └── HttpError.ts     # Application error class with codes
+```mermaid
+flowchart TD
+    subgraph Client["Web Frontend (React 19 + Vite + TanStack Query)"]
+        UI["Linear-style UI & Dashboard"]
+        OccHandler["Optimistic UI & 409 Conflict Resolver"]
+        Polling["Live Polling Engine (8s / 10s / 15s)"]
+    end
+
+    subgraph API["Backend API (Node.js + Express 5 + TypeScript)"]
+        AuthMiddleware["JWT Authenticate & Active Check"]
+        RBAC["Team-Scoped RBAC & 404 Privacy Guard"]
+        StateMachine["Workflow State Machine & Idempotency Filter"]
+        TxManager["Atomic Transaction Manager (pg pool)"]
+    end
+
+    subgraph DB["PostgreSQL 17 Database"]
+        WorkItems[("work_items (versioned)")]
+        AuditEvents[("activity_events (append-only)")]
+        Approvals[("approvals (one-pending index)")]
+        OutboxTable[("outbox_events (transactional)")]
+        Notifications[("notifications (UNIQUE event+user)")]
+    end
+
+    subgraph WorkerService["Background Worker Daemon"]
+        SkipLocked["FOR UPDATE SKIP LOCKED Poller"]
+        RetryEngine["Exponential Backoff & Dead Letter Queue"]
+        LeaseRecovery["Crash Recovery (60s Lock TTL)"]
+    end
+
+    UI -->|HTTPS / REST + Idempotency-Key| AuthMiddleware
+    AuthMiddleware --> RBAC
+    RBAC --> StateMachine
+    StateMachine --> TxManager
+    TxManager -->|Atomic COMMIT / ROLLBACK| WorkItems
+    TxManager --> AuditEvents
+    TxManager --> Approvals
+    TxManager --> OutboxTable
+
+    WorkerService -->|Polls pending events| OutboxTable
+    WorkerService -->|Inserts deduplicated alerts| Notifications
+    Polling -->|Fetches live notifications| Notifications
+    OccHandler <-->|Version validation & Stale checks| WorkItems
 ```
 
 ---
 
-## Getting Started
+## Prerequisites
 
-### 1. Prerequisites
-- Node.js 20+
-- Docker & Docker Compose (or a local PostgreSQL 16+ instance)
+- **Node.js**: v20+ (`node -v`)
+- **Docker & Docker Compose**: Docker Desktop running (`docker compose version`)
+- **Package Manager**: `npm`
 
-### 2. Configure Environment
-In `api/.env`:
-```env
-NODE_ENV=development
-PORT=4000
-DATABASE_URL=postgresql://opsdesk:local_dev_password@localhost:5432/opsdesk
-JWT_SECRET=8b9925f95f840e0e57298be8d949af436951e7117b0296eaa8d36ba9f644c085
-JWT_EXPIRES_IN=1h
-WEB_ORIGIN=http://localhost:5173
-OUTBOX_BATCH_SIZE=10
-OUTBOX_MAX_ATTEMPTS=5
-OUTBOX_POLL_INTERVAL_MS=1000
-```
+---
 
-### 3. Start Database
+## Exact Run Commands
+
+### Option 1: Full Docker Compose Run (API + Worker + DB)
 ```bash
-docker compose up -d db
-```
+# From repository root:
+docker compose up -d
 
-### 4. Run Migrations & Seed
-From `api/`:
-```bash
+# Run migrations and seed data in API:
+cd api
+npm install
 npm run migrate
 npm run seed
-```
 
-### 5. Start API & Worker
-In Terminal 1 (API):
+# Run the web frontend:
+cd ../web
+npm install
+npm run dev
+```
+- Web UI: **http://localhost:5173**
+- Backend API: **http://localhost:4000/api**
+
+### Option 2: Local Development Run (Fastest for Development)
 ```bash
+# 1. Start PostgreSQL Database
+docker compose up -d db
+
+# 2. Setup and run Backend API (Terminal 1)
+cd api
+npm install
+npm run migrate
+npm run seed
+npm run dev
+
+# 3. Run Outbox Background Worker (Terminal 2)
+cd api
+npm run dev:worker
+
+# 4. Run Frontend Dashboard (Terminal 3)
+cd web
+npm install
 npm run dev
 ```
 
-In Terminal 2 (Background Worker):
+Open **http://localhost:5173** in your browser.
+
+---
+
+## Demo Login Credentials per Role
+
+All seed users use the password: **`password123`**
+
+The login screen also includes **1-Click Quick Sign-In buttons** for instant persona switching.
+
+| Role | Email | Password | Assigned Team | Permissions / Capabilities |
+| :--- | :--- | :--- | :--- | :--- |
+| **Team Lead** | `lead@opsdesk.dev` | `password123` | Payments | Can create, assign, unassign, edit, transition, and **approve/reject** requests. |
+| **Team Member 1** | `member@opsdesk.dev` | `password123` | Payments | Can create, claim, assign, transition, and comment. Cannot approve. |
+| **Team Member 2** | `member2@opsdesk.dev` | `password123` | Payments | Can create, claim, assign, transition, and comment. |
+| **Viewer** | `viewer@opsdesk.dev` | `password123` | Payments | **Read-only**. Action buttons hidden; direct API mutations return 403. |
+| **Outsider** | `outsider@opsdesk.dev` | `password123` | Engineering | Belongs to another team. Accessing Payments items returns **404 Not Found**. |
+
+---
+
+## How to Run Automated Tests
+
+The automated smoke suite runs **143 tests** covering identity, RBAC authorization, claim races, version conflicts, workflow rules, idempotency, keyset pagination, 20k performance benchmarks, and outbox notification delivery.
+
 ```bash
-npm run dev:worker
+cd api
+npx tsx scripts/smoke.ts
 ```
 
-The API runs on `http://localhost:4000`. Health check:
+Expected result:
+```
+━━━━━━━━━━ SUMMARY ━━━━━━━━━━
+✅  2/2   0. Basics
+✅ 14/14  1. Authentication
+✅  6/6   2. Teams & membership
+✅ 18/18  3. Authorization (enforced by API, not UI)
+✅  8/8   4. Idempotency (retries don't duplicate)
+✅  4/4   5. Comments
+✅  8/8   6. Stale updates (optimistic concurrency)
+✅  6/6   7. Claim race (two people grabbing the same work)
+✅ 11/11  8. Workflow rules
+✅ 19/19  9. Approvals
+✅ 11/11  10. Audit history
+✅ 14/14  11. List, filter, search, pagination
+✅  5/5   12. Performance with seeded data
+✅  7/7   13. Dashboard
+✅ 10/10  14. Background worker & notifications
+
+143/143 checks passed
+```
+
+### Type Checking & Build Verification
 ```bash
-GET http://localhost:4000/api/health
+# In api/:
+npm run build    # 0 errors
+
+# In web/:
+npm run build    # 0 errors
 ```
 
 ---
 
-## Seed Accounts
+## Key Non-CRUD Behaviors Implemented
 
-All seed users have the password: `password123`
-
-| Email | Name | Teams & Roles |
-|---|---|---|
-| `alice@opsdesk.dev` | Alice Johnson | Payments (**Lead**), Compliance (Member) |
-| `bob@opsdesk.dev` | Bob Smith | Payments (Member), Engineering (Member) |
-| `charlie@opsdesk.dev` | Charlie Brown | Payments (Member) |
-| `diana@opsdesk.dev` | Diana Prince | Payments (Viewer) |
-| `eve@opsdesk.dev` | Eve Wilson | Engineering (**Lead**) |
-| `frank@opsdesk.dev` | Frank Miller | Engineering (Member) |
-| `grace@opsdesk.dev` | Grace Lee | Engineering (Member) |
-| `henry@opsdesk.dev` | Henry Davis | Compliance (**Lead**) |
-| `ivy@opsdesk.dev` | Ivy Chen | Compliance (Member) |
-| `jack@opsdesk.dev` | Jack Taylor | Compliance (Member) |
+1. **Atomic Claim Races:** Single-statement conditional `UPDATE ... WHERE assignee_id IS NULL` guarantees only one operator wins a race, with idempotent success for the existing owner and `409 ALREADY_CLAIMED` for others.
+2. **Optimistic Concurrency Control:** Every state change requires `expectedVersion`. Concurrent edits reject with `409 VERSION_CONFLICT` and present a visual conflict modal preserving the user's unsaved draft.
+3. **Cryptographic Idempotency:** Mutations accept an `Idempotency-Key` header with SHA-256 request canonicalization. Identical network retries return the cached response; modified bodies return `422 IDEMPOTENCY_KEY_REUSED`.
+4. **Enforced Workflow Transitions:** Validates state machine rules (`OPEN → IN_PROGRESS → PENDING_APPROVAL → APPROVED/REJECTED → RESOLVED → CLOSED`). Items requiring approval cannot bypass the approval stage.
+5. **Self-Approval Prevention:** Team leads cannot approve or reject their own requested approvals.
+6. **Append-Only Audit History:** Immutable `activity_events` ledger recording actor, event type, and before/after diffs.
+7. **Transactional Outbox Worker:** `FOR UPDATE SKIP LOCKED` batch processor with exponential retry backoff, dead-letter queueing, and stale lease recovery.
+8. **Keyset Cursor Pagination & Full-Text Search:** $O(\log N)$ cursor seeks over 20,000 seeded items with PostgreSQL GIN indexed `TSVECTOR` searching.
 
 ---
 
-## API Endpoints Reference
+## Documentation Links
 
-### Auth
-- `POST /api/auth/login` — Log in with email & password (rate-limited, anti-enumeration)
-- `GET /api/auth/me` — Return current user details & team memberships
+- [ENGINEERING_DECISIONS.md](file:///c:/Users/22ayo/Desktop/Newnoite/OpsDesk/ENGINEERING_DECISIONS.md) — Detailed rationale for concurrency, outbox pattern, RBAC, and idempotency.
+- [KNOWN_LIMITATIONS.md](file:///c:/Users/22ayo/Desktop/Newnoite/OpsDesk/KNOWN_LIMITATIONS.md) — Analysis of scaling bottlenecks, outbox accumulation, and 100x scale roadmap.
 
-### Teams
-- `GET /api/teams` — List teams user belongs to
-- `GET /api/teams/:id` — Get team details & user's role (404 if not a member)
-- `GET /api/teams/:id/members` — List members & roles for a team
+---
 
-### Work Items
-- `GET /api/items` — Keyset-paginated search & filter (`teamId`, `status`, `priority`, `assigneeId`, `type`, `search`, `limit`, `cursor`)
-- `POST /api/items` — Create item (`Idempotency-Key` required)
-- `GET /api/items/:id` — Get item details + calculated UI permissions
-- `PATCH /api/items/:id` — Optimistic update (`expectedVersion` required)
-- `POST /api/items/:id/claim` — Atomic claim (idempotent for current owner)
-- `POST /api/items/:id/assign` — Assign item to team member (`expectedVersion` required)
-- `POST /api/items/:id/unassign` — Release claim (`expectedVersion` required; assignee or lead only)
-- `POST /api/items/:id/transition` — Status transition (`expectedVersion`, `Idempotency-Key` required)
-- `POST /api/items/:id/comments` — Add comment (`Idempotency-Key` required, does not bump version)
-- `GET /api/items/:id/comments` — Keyset-paginated comment stream
-- `GET /api/items/:id/activity` — Keyset-paginated append-only audit trail
+## Next Week I Would...
 
-### Approvals
-- `GET /api/approvals/pending` — List pending approvals for teams caller leads (excludes self-requests)
-- `POST /api/approvals/:id/approve` — Approve request (`expectedVersion` required)
-- `POST /api/approvals/:id/reject` — Reject request (`expectedVersion`, `reason` required)
-
-### Dashboard
-- `GET /api/dashboard` — Aggregated counts and lists for assigned, unassigned high-priority, pending approvals, and overdue items
-
-### Notifications
-- `GET /api/notifications` — List notifications with unread count
-- `POST /api/notifications/:id/read` — Mark notification as read
-- `POST /api/notifications/read-all` — Mark all notifications as read
+1. **Configurable SLA Countdown Timers:** Add team-specific SLA policies with automated visual urgency indicators and outbox escalation alerts when items approach breach thresholds.
+2. **Saved Query Views & Custom Presets:** Allow operators to bookmark complex filter queries (e.g. "My P0 Unresolved Incidents") directly in their sidebar.
+3. **Attachments via S3 Pre-Signed URLs:** Implement direct-to-object-storage attachments for log files, diagnostics, and screenshots.
+4. **WebSockets / SSE Gateway:** Upgrade the polling engine to push-based notification delivery via a lightweight WebSocket broker connected to the outbox worker.
